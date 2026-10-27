@@ -3,7 +3,10 @@
 Legacy `get_pretrained_model_config` tests live in test_gemma3_config.py.
 """
 
+from types import SimpleNamespace
+
 import pytest
+import torch
 
 from transformer_lens.config.transformer_bridge_config import TransformerBridgeConfig
 from transformer_lens.conversion_utils.conversion_steps import (
@@ -29,8 +32,17 @@ from transformer_lens.model_bridge.generalized_components import (
 from transformer_lens.model_bridge.generalized_components.position_embeddings_attention import (
     PositionEmbeddingsAttentionBridge,
 )
+from transformer_lens.model_bridge.sources._bridge_builder import (
+    build_bridge_config_from_hf,
+)
+from transformer_lens.model_bridge.sources.transformers import (
+    map_default_transformer_lens_config,
+)
 from transformer_lens.model_bridge.supported_architectures.gemma3 import (
     Gemma3ArchitectureAdapter,
+)
+from transformer_lens.model_bridge.supported_architectures.gemma3_multimodal import (
+    Gemma3MultimodalArchitectureAdapter,
 )
 
 
@@ -60,6 +72,70 @@ class TestGemma3AdapterConfig:
         # Gemma uses (1 + weight); offset must be advertised on cfg.
         assert adapter.cfg.rmsnorm_uses_offset is True
 
+
+class TestGemma3EpsilonPropagation:
+    """Regression coverage for HF rms_norm_eps -> TransformerLens cfg.eps propagation."""
+
+    def test_top_level_rms_norm_eps_propagates_to_cfg_eps(self):
+        hf_config = SimpleNamespace(
+            hidden_size=640,
+            num_attention_heads=4,
+            num_key_value_heads=1,
+            num_hidden_layers=18,
+            head_dim=256,
+            intermediate_size=2048,
+            vocab_size=262144,
+            max_position_embeddings=8192,
+            rms_norm_eps=0.125,
+        )
+        tl_config = map_default_transformer_lens_config(hf_config)
+        assert tl_config.eps == 0.125
+
+        bridge_cfg = build_bridge_config_from_hf(
+            hf_config=hf_config,
+            architecture="Gemma3ForCausalLM",
+            model_name="google/gemma-3-270m",
+            dtype=torch.float32,
+        )
+        adapter = Gemma3ArchitectureAdapter(bridge_cfg)
+        assert adapter.cfg.eps == 0.125
+
+    def test_nested_text_config_rms_norm_eps_propagates_to_cfg_eps(self):
+        text_config = SimpleNamespace(
+            hidden_size=2560,
+            num_attention_heads=8,
+            num_key_value_heads=4,
+            num_hidden_layers=34,
+            head_dim=256,
+            intermediate_size=10240,
+            vocab_size=262208,
+            max_position_embeddings=8192,
+            rms_norm_eps=0.125,
+        )
+        vision_config = SimpleNamespace(
+            model_type="siglip_vision_model",
+            hidden_size=1152,
+            num_hidden_layers=27,
+            num_attention_heads=16,
+        )
+        hf_config = SimpleNamespace(
+            text_config=text_config,
+            vision_config=vision_config,
+        )
+        tl_config = map_default_transformer_lens_config(hf_config)
+        assert tl_config.eps == 0.125
+
+        bridge_cfg = build_bridge_config_from_hf(
+            hf_config=hf_config,
+            architecture="Gemma3ForConditionalGeneration",
+            model_name="google/gemma-3-4b-pt",
+            dtype=torch.float32,
+        )
+        adapter = Gemma3MultimodalArchitectureAdapter(bridge_cfg)
+        assert adapter.cfg.eps == 0.125
+
+
+++ b/tests/unit/model_bridge/generalized_components/test_normalization_bridge.py
 
 class TestGemma3ComponentMappingPresence:
     """Component slots must exist (deletion guard)."""

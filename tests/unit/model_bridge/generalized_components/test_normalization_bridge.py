@@ -1,8 +1,9 @@
-"""RMSNorm-vs-LayerNorm dispatch in NormalizationBridge.
+"""RMSNorm-vs-LayerNorm dispatch and numerical RMSNorm in NormalizationBridge.
 
 Regression coverage for Gemma 3 multimodal: SigLIP's post_layernorm was wrapped
 under the LM's uses_rms_norm=True config, silently dropping mean-centering and
-bias and producing gibberish completions.
+bias and producing gibberish completions. Also covers numerical RMSNormalizationBridge
+forward execution and hook calculations with non-default epsilon (0.125).
 """
 
 import torch
@@ -11,12 +12,29 @@ import torch.nn as nn
 from transformer_lens.model_bridge.generalized_components.normalization import (
     NormalizationBridge,
 )
+from transformer_lens.model_bridge.generalized_components.rms_normalization import (
+    RMSNormalizationBridge,
+)
 
 
 class _Cfg:
     def __init__(self, uses_rms_norm: bool, eps: float = 1e-5):
         self.uses_rms_norm = uses_rms_norm
         self.eps = eps
+
+
+class _ReferenceRMSNorm(nn.Module):
+    """Minimal HF-style RMSNorm component for bridge wrapping."""
+
+    def __init__(self, weight: torch.Tensor, eps: float = 0.125):
+        super().__init__()
+        self.weight = nn.Parameter(weight.clone())
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x_f32 = x.to(torch.float32)
+        rms = torch.sqrt(x_f32.pow(2).mean(-1, keepdim=True) + self.eps)
+        return (x_f32 / rms * self.weight).to(x.dtype)
 
 
 def _make_bridge(layer: nn.Module, cfg: _Cfg, **kwargs) -> NormalizationBridge:
@@ -146,3 +164,79 @@ def test_layernorm_with_none_bias_matches_torch():
     out = bridge(x)
     assert torch.isfinite(out).all()
     torch.testing.assert_close(out, layer(x), rtol=1e-5, atol=1e-5)
+
+
+def test_rms_normalization_bridge_custom_path_numerical_epsilon():
+    """Verify custom calculation path computes x / sqrt(mean(x^2) + eps) * weight with eps=0.125."""
+    eps = 0.125
+    default_eps = 1e-5
+    x = torch.tensor(
+        [[[0.2, -0.4, 0.6, -0.8], [0.1, 0.3, -0.5, 0.7]]],
+        dtype=torch.float32,
+    )
+    weight = torch.tensor([1.25, -0.75, 0.5, 1.5], dtype=torch.float32)
+
+    layer = _ReferenceRMSNorm(weight=weight, eps=eps)
+    bridge = RMSNormalizationBridge(
+        name="ln1",
+        config=_Cfg(uses_rms_norm=True, eps=eps),
+        use_native_layernorm_autograd=False,
+    )
+    bridge.set_original_component(layer)
+
+    captured = {}
+    bridge.hook_scale.add_hook(lambda t, hook: captured.setdefault("scale", t.clone()))
+    bridge.hook_normalized.add_hook(lambda t, hook: captured.setdefault("normed", t.clone()))
+
+    out = bridge(x)
+
+    expected_scale = torch.sqrt(x.pow(2).mean(-1, keepdim=True) + eps)
+    expected_normed = x / expected_scale
+    expected_out = expected_normed * weight
+
+    torch.testing.assert_close(captured["scale"], expected_scale, rtol=1e-6, atol=1e-6)
+    torch.testing.assert_close(captured["normed"], expected_normed, rtol=1e-6, atol=1e-6)
+    torch.testing.assert_close(out, expected_out, rtol=1e-6, atol=1e-6)
+
+    wrong_scale = torch.sqrt(x.pow(2).mean(-1, keepdim=True) + default_eps)
+    wrong_out = (x / wrong_scale) * weight
+    assert not torch.allclose(out, wrong_out, rtol=1e-3, atol=1e-3)
+
+
+def test_rms_normalization_bridge_native_delegation_path_numerical_epsilon():
+    """Verify native HF delegation path and its hooks respect eps=0.125."""
+    eps = 0.125
+    default_eps = 1e-5
+    x = torch.tensor(
+        [[[0.2, -0.4, 0.6, -0.8], [0.1, 0.3, -0.5, 0.7]]],
+        dtype=torch.float32,
+    )
+    weight = torch.tensor([1.25, -0.75, 0.5, 1.5], dtype=torch.float32)
+
+    layer = _ReferenceRMSNorm(weight=weight, eps=eps)
+    bridge = RMSNormalizationBridge(
+        name="ln1",
+        config=_Cfg(uses_rms_norm=True, eps=eps),
+        use_native_layernorm_autograd=True,
+    )
+    bridge.set_original_component(layer)
+
+    captured = {}
+    bridge.hook_scale.add_hook(lambda t, hook: captured.setdefault("scale", t.clone()))
+    bridge.hook_normalized.add_hook(lambda t, hook: captured.setdefault("normed", t.clone()))
+
+    out = bridge(x)
+
+    expected_scale = torch.sqrt(x.pow(2).mean(-1, keepdim=True) + eps)
+    expected_normed = x / expected_scale
+    expected_out = expected_normed * weight
+
+    torch.testing.assert_close(captured["scale"], expected_scale, rtol=1e-6, atol=1e-6)
+    torch.testing.assert_close(captured["normed"], expected_normed, rtol=1e-6, atol=1e-6)
+    torch.testing.assert_close(out, expected_out, rtol=1e-6, atol=1e-6)
+
+    wrong_scale = torch.sqrt(x.pow(2).mean(-1, keepdim=True) + default_eps)
+    wrong_normed = x / wrong_scale
+    wrong_out = wrong_normed * weight
+    assert not torch.allclose(out, wrong_out, rtol=1e-3, atol=1e-3)
+    assert not torch.allclose(captured["normed"], wrong_normed, rtol=1e-3, atol=1e-3)
