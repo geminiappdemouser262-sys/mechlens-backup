@@ -755,6 +755,7 @@ def copy_demos(_app: Optional[Any] = None):
         "Exploratory_Analysis_Demo.ipynb",
         "Main_Demo.ipynb",
         "Gemma_3_Text.ipynb",
+        "Gemma_3_Multimodal.ipynb",
     ]
 
     if copy_to_dir.exists():

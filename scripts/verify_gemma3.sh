@@ -44,28 +44,25 @@ if [[ $SKIP_DOCS -eq 0 ]]; then
   $RUN python - <<'PY'
 import re, sys
 from pathlib import Path
-nb = "Gemma_3_Text.ipynb"
-stem = nb.removesuffix(".ipynb")
 problems = []
-for extra_nb in ("Gemma_3_Multimodal.ipynb",):
-    if not Path("demos", extra_nb).exists():
-        problems.append(f"demos/{extra_nb} missing")
-if not Path("demos", nb).exists():
-    problems.append(f"demos/{nb} missing")
-mk = Path("docs/make_docs.py").read_text()
-if f'"{nb}"' not in mk.split("def copy_demos", 1)[1].split("def ", 1)[0]:
-    problems.append(f"{nb} not in copy_demos() notebooks_to_copy (docs/make_docs.py)")
-if not re.search(rf"^generated/demos/{stem}\s*$", Path("docs/source/index.md").read_text(), re.M):
-    problems.append(f"generated/demos/{stem} not in docs/source/index.md toctree")
-if nb not in Path("docs/source/content/tutorials.md").read_text():
-    problems.append(f"{nb} not linked from docs/source/content/tutorials.md")
-import json
-for c in json.loads(Path("demos", nb).read_text())["cells"]:
-    if c["cell_type"] == "code" and (c["outputs"] or c["execution_count"] is not None):
-        problems.append(f"{nb} has unstripped outputs"); break
+for nb in ("Gemma_3_Text.ipynb", "Gemma_3_Multimodal.ipynb"):
+    stem = nb.removesuffix(".ipynb")
+    if not Path("demos", nb).exists():
+        problems.append(f"demos/{nb} missing"); continue
+    mk = Path("docs/make_docs.py").read_text()
+    if f'"{nb}"' not in mk.split("def copy_demos", 1)[1].split("def ", 1)[0]:
+        problems.append(f"{nb} not in copy_demos() notebooks_to_copy (docs/make_docs.py)")
+    if not re.search(rf"^generated/demos/{stem}\s*$", Path("docs/source/index.md").read_text(), re.M):
+        problems.append(f"generated/demos/{stem} not in docs/source/index.md toctree")
+    if nb not in Path("docs/source/content/tutorials.md").read_text():
+        problems.append(f"{nb} not linked from docs/source/content/tutorials.md")
+    import json
+    for c in json.loads(Path("demos", nb).read_text())["cells"]:
+        if c["cell_type"] == "code" and (c["outputs"] or c["execution_count"] is not None):
+            problems.append(f"{nb} has unstripped outputs"); break
 if problems:
     print("\n".join("  - " + p for p in problems)); sys.exit(1)
-print("  ok: registered in make_docs.py, index.md toctree, tutorials.md; outputs stripped")
+print("  ok: both notebooks registered in make_docs.py, index.md toctree, tutorials.md; outputs stripped")
 PY
 
   echo "== Docs: sphinx build (nbsphinx_execute=never; model tables skipped) =="
@@ -81,12 +78,14 @@ try:
     m.generate_bridge_models_page()
 except Exception as e:  # local registry only; never fatal for the demo check
     print(f"  (bridge-models page skipped: {e})")
-out = m.GENERATED_DIR / "demos" / "Gemma_3_Text.ipynb"
-assert out.exists(), f"copy_demos() did not produce {out}"
+for nb in ("Gemma_3_Text.ipynb", "Gemma_3_Multimodal.ipynb"):
+    out = m.GENERATED_DIR / "demos" / nb
+    assert out.exists(), f"copy_demos() did not produce {out}"
 subprocess.run([sys.executable, "-m", "sphinx", "-b", "html", "-q", str(m.SOURCE_PATH), str(m.BUILD_PATH)], check=True)
-html = m.BUILD_PATH / "generated" / "demos" / "Gemma_3_Text.html"
-assert html.exists(), f"sphinx did not render {html}"
-print(f"  ok: rendered {html.resolve()}")
+for stem in ("Gemma_3_Text", "Gemma_3_Multimodal"):
+    html = m.BUILD_PATH / "generated" / "demos" / f"{stem}.html"
+    assert html.exists(), f"sphinx did not render {html}"
+    print(f"  ok: rendered {html.resolve()}")
 PY
 fi
 echo "== verify_gemma3: PASS =="

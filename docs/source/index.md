@@ -60,6 +60,7 @@ content/debugging_numerical_divergence
 generated/demos/Main_Demo
 generated/demos/Exploratory_Analysis_Demo
 generated/demos/Gemma_3_Text
+generated/demos/Gemma_3_Multimodal
 content/special_cases
 ```
 
