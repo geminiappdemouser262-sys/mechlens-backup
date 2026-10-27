@@ -1,0 +1,38 @@
+name: Demo smoke (offline)
+
+# Runs the Gemma-3 text demo notebook against a tiny synthetic Gemma3TextConfig model.
+# No HF_TOKEN, no Hub downloads — safe on forks and external PRs.
+on:
+  pull_request:
+    paths:
+      - "demos/Gemma_3_Text.ipynb"
+      - "tests/integration/demos/**"
+      - "transformer_lens/model_bridge/**"
+      - ".github/workflows/demo-smoke.yml"
+  push:
+    branches: [main]
+    paths:
+      - "demos/Gemma_3_Text.ipynb"
+      - "tests/integration/demos/**"
+  workflow_dispatch:
+
+jobs:
+  gemma3-text-demo:
+    name: Gemma-3 text demo notebook
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      UV_TORCH_BACKEND: cpu
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --no-default-groups --group dev
+      - name: Run notebook smoke test
+        run: uv run pytest tests/integration/demos/test_gemma3_text_demo_smoke.py -v -p no:cacheprovider
