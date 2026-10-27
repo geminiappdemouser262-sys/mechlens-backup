@@ -1,29 +1,33 @@
-name: Demo smoke (offline)
+name: Gemma-3 verification (offline)
 
-# Runs the Gemma-3 text demo notebook against a tiny synthetic Gemma3TextConfig model.
-# No HF_TOKEN, no Hub downloads — safe on forks and external PRs.
+# Runs scripts/verify_gemma3.sh: the Gemma-3 regression tests (tiny synthetic Gemma3 configs,
+# no HF_TOKEN, no Hub downloads) and the docs registration + sphinx build check for
+# demos/Gemma_3_Text.ipynb. Safe on forks and external PRs.
 on:
   pull_request:
     paths:
       - "demos/Gemma_3_Text.ipynb"
       - "tests/integration/demos/**"
+      - "tests/integration/model_bridge/test_gemma3_*.py"
+      - "tests/unit/model_bridge/supported_architectures/test_gemma3*.py"
+      - "tests/unit/model_bridge/generalized_components/test_normalization_bridge.py"
       - "transformer_lens/model_bridge/**"
+      - "transformer_lens/weight_processing.py"
+      - "docs/make_docs.py"
+      - "docs/source/index.md"
+      - "docs/source/content/tutorials.md"
+      - "scripts/verify_gemma3.sh"
       - ".github/workflows/demo-smoke.yml"
   push:
     branches: [main]
-    paths:
-      - "demos/Gemma_3_Text.ipynb"
-      - "tests/integration/demos/**"
   workflow_dispatch:
 
 jobs:
-  gemma3-text-demo:
-    name: Gemma-3 text demo notebook
+  tests:
+    name: Gemma-3 regression tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
-      HF_HUB_OFFLINE: "1"
-      TRANSFORMERS_OFFLINE: "1"
       UV_TORCH_BACKEND: cpu
     steps:
       - uses: actions/checkout@v4
@@ -34,5 +38,35 @@ jobs:
           enable-cache: true
       - name: Install dependencies
         run: uv sync --no-default-groups --group dev
-      - name: Run notebook smoke test
-        run: uv run pytest tests/integration/demos/test_gemma3_text_demo_smoke.py -v -p no:cacheprovider
+      - name: Run Gemma-3 regression tests
+        run: scripts/verify_gemma3.sh --skip-docs
+
+  docs:
+    name: Docs registration + build check
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      UV_TORCH_BACKEND: cpu
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install pandoc
+        uses: awalsh128/cache-apt-pkgs-action@latest
+        with:
+          packages: pandoc
+          version: 1.0
+      - name: Install dependencies
+        run: uv sync --no-default-groups --group dev --group docs
+      - name: Check demo registration and build docs
+        run: scripts/verify_gemma3.sh --docs-only
+      - name: Upload rendered demo page
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gemma3-demo-docs
+          path: docs/build/generated/demos/
+          if-no-files-found: ignore
