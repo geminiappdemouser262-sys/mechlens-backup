@@ -59,6 +59,7 @@ content/compatibility_mode
 content/debugging_numerical_divergence
 generated/demos/Main_Demo
 generated/demos/Exploratory_Analysis_Demo
+generated/demos/Gemma_3_Text
 content/special_cases
 ```
 

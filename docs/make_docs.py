@@ -754,6 +754,7 @@ def copy_demos(_app: Optional[Any] = None):
     notebooks_to_copy = [
         "Exploratory_Analysis_Demo.ipynb",
         "Main_Demo.ipynb",
+        "Gemma_3_Text.ipynb",
     ]
 
     if copy_to_dir.exists():
