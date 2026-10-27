@@ -31,6 +31,7 @@ GEMMA3_TESTS=(
   tests/integration/model_bridge/test_gemma3_vision_layernorm_offsets.py
   tests/integration/model_bridge/test_gemma3_final_rms_weight_processing.py
   tests/integration/demos/test_gemma3_text_demo_smoke.py
+  tests/integration/demos/test_gemma3_multimodal_demo_smoke.py
 )
 
 if [[ $DOCS_ONLY -eq 0 ]]; then
@@ -46,6 +47,9 @@ from pathlib import Path
 nb = "Gemma_3_Text.ipynb"
 stem = nb.removesuffix(".ipynb")
 problems = []
+for extra_nb in ("Gemma_3_Multimodal.ipynb",):
+    if not Path("demos", extra_nb).exists():
+        problems.append(f"demos/{extra_nb} missing")
 if not Path("demos", nb).exists():
     problems.append(f"demos/{nb} missing")
 mk = Path("docs/make_docs.py").read_text()
