@@ -8,6 +8,12 @@ TransformerBridge forward pass. Verifies:
 - setup_component_testing wires rotary_emb (including local RoPE) and eager attention
 - Forward-pass logits parity against HF eager is strictly below 1e-4
 - Bridge components and attention reconstruction hooks actually fire (non-tautological)
+
+Note: this file uses Gemma-3's real rms_norm_eps (1e-6, also HF's Gemma3TextConfig default),
+so it is a logits-parity test, not an eps-propagation test. Eps propagation with a deliberately
+non-default value (0.125) is covered by TestGemma3EpsilonPropagation in
+tests/unit/model_bridge/supported_architectures/test_gemma3_adapter.py and by
+tests/integration/model_bridge/test_gemma3_norm_hook_parity.py.
 """
 
 import copy

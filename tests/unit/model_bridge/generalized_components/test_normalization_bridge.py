@@ -240,3 +240,38 @@ def test_rms_normalization_bridge_native_delegation_path_numerical_epsilon():
     wrong_out = wrong_normed * weight
     assert not torch.allclose(out, wrong_out, rtol=1e-3, atol=1e-3)
     assert not torch.allclose(captured["normed"], wrong_normed, rtol=1e-3, atol=1e-3)
+
+
+def test_rms_normalization_bridge_output_tracks_cfg_eps():
+    """Changing (or dropping to default) the configured eps must visibly change the output.
+
+    Same input/weights as the numerical tests above; the custom-calculation path reads eps from
+    cfg only, so this isolates the config value as the thing the output depends on. Also pins the
+    direction: larger eps -> larger scale -> smaller |output|.
+    """
+    x = torch.tensor([[[0.2, -0.4, 0.6, -0.8], [0.1, 0.3, -0.5, 0.7]]], dtype=torch.float32)
+    weight = torch.tensor([1.25, -0.75, 0.5, 1.5], dtype=torch.float32)
+
+    def _out(eps: float) -> torch.Tensor:
+        layer = _ReferenceRMSNorm(weight=weight, eps=eps)
+        bridge = RMSNormalizationBridge(
+            name="ln1", config=_Cfg(uses_rms_norm=True, eps=eps), use_native_layernorm_autograd=False
+        )
+        bridge.set_original_component(layer)
+        return bridge(x)
+
+    out_cfg = _out(0.125)
+    out_default_tl = _out(1e-5)  # TransformerLensConfig / NormalizationBridge fallback
+    out_default_gemma = _out(1e-6)  # HF Gemma3TextConfig default
+    out_other = _out(0.5)
+
+    for other, label in ((out_default_tl, "1e-5"), (out_default_gemma, "1e-6"), (out_other, "0.5")):
+        assert not torch.allclose(out_cfg, other, rtol=1e-3, atol=1e-3), (
+            f"output with eps=0.125 should differ from eps={label}"
+        )
+    # Direction: larger eps shrinks the normalised magnitude.
+    assert out_other.abs().sum() < out_cfg.abs().sum() < out_default_tl.abs().sum()
+    # And the dependence is exactly through sqrt(mean(x^2) + eps).
+    for eps, out in ((0.125, out_cfg), (0.5, out_other)):
+        expected = x / torch.sqrt(x.pow(2).mean(-1, keepdim=True) + eps) * weight
+        torch.testing.assert_close(out, expected, rtol=1e-6, atol=1e-6)
